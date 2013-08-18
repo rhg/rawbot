@@ -1,0 +1,49 @@
+(ns rawbot.core
+  (:gen-class)
+  (:require [clojure.java.io :as io])
+  (:import (java.net Socket)
+           (java.io PrintWriter InputStreamReader BufferedReader)))
+
+(def cfg (atom (-> "config.clj" io/resource slurp read-string)))
+
+(declare conn-handler)
+
+(defn connect [server]
+  (let [socket (Socket. (:name server) (:port server))
+        in (BufferedReader. (InputStreamReader. (.getInputStream socket)))
+        out (PrintWriter. (.getOutputStream socket))
+        conn (ref {:in in :out out})]
+    (doto (Thread. #(conn-handler conn)) (.start))
+    conn))
+
+(defn write [conn msg]
+  (println "-->" msg)
+  (doto (:out @conn)
+    (.println (str msg "\r"))
+    (.flush)))
+
+(defn conn-handler [conn]
+  (while (nil? (:exit @conn))
+    (let [msg (.readLine (:in @conn))]
+      (println msg)
+      (cond 
+       (re-find #"^ERROR :Closing Link:" msg) 
+       (dosync (alter conn merge {:exit true}))
+       (re-find #"^PING" msg)
+       (write conn (str "PONG "  (re-find #":.*" msg)))))))
+
+(defn login [conn user]
+  (write conn (str "NICK " (:nick user)))
+  (write conn (str "USER " (:nick user) " 0 * :" (:name user))))
+
+(defn join-channels [irc cfg]
+  (doseq [c (:channels cfg)]
+    (write irc (str "JOIN " c))))
+
+(defn -main [& args]
+  (doseq [[s c] (:servers @cfg)]
+(println c)
+    (doto (connect {:name s :port (:port c)})
+      (login {:nick (:nick c) :name (:nick c)})
+      (join-channels c)
+      (write "QUIT"))))
