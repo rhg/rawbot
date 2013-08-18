@@ -27,6 +27,8 @@
     (let [msg (.readLine (:in @conn))]
       (println msg)
       (cond 
+        (and (re-find #":\$die" msg) (= (:master @cfg) ((re-find #":(.*)\!" msg) 1)))
+          (dosync (alter conn assoc :exit true))
        (re-find #"^ERROR :Closing Link:" msg) 
        (dosync (alter conn merge {:exit true}))
        (re-find #"^PING" msg)
@@ -45,5 +47,4 @@
 (println c)
     (doto (connect {:name s :port (:port c)})
       (login {:nick (:nick c) :name (:nick c)})
-      (join-channels c)
-      (write "QUIT"))))
+      (join-channels c))))
