@@ -5,6 +5,7 @@
            (java.io PrintWriter InputStreamReader BufferedReader)))
 
 (def cfg (atom (-> "config.clj" io/resource slurp read-string)))
+(def bots (atom {}))
 
 (declare conn-handler)
 
@@ -14,6 +15,7 @@
         out (PrintWriter. (.getOutputStream socket))
         conn (ref {:in in :out out})]
     (doto (Thread. #(conn-handler conn)) (.start))
+    (swap! bots assoc (:name server) conn)
     conn))
 
 (defn write [conn msg]
@@ -32,7 +34,8 @@
        (re-find #"^ERROR :Closing Link:" msg) 
        (dosync (alter conn merge {:exit true}))
        (re-find #"^PING" msg)
-       (write conn (str "PONG "  (re-find #":.*" msg)))))))
+       (write conn (str "PONG "  (re-find #":.*" msg))))))
+  (swap! bots disj conn))
 
 (defn login [conn user]
   (write conn (str "NICK " (:nick user)))
