@@ -47,7 +47,6 @@
 
 (defn -main [& args]
   (doseq [[s c] (:servers @cfg)]
-(println c)
     (doto (connect {:name s :port (:port c)})
       (login {:nick (:nick c) :name (:nick c)})
       (join-channels c))))
