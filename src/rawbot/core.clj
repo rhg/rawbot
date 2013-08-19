@@ -24,13 +24,18 @@
     (.println (str msg "\r"))
     (.flush)))
 
+(defmacro if-master [t]
+  `(and ~t (= (:master @cfg) (get (re-find #":(.*)!" ~'msg) 1))))
+
 (defn conn-handler [conn]
   (while (nil? (:exit @conn))
     (let [msg (.readLine (:in @conn))]
       (println msg)
       (cond 
-        (and (re-find #":\$die" msg) (= (:master @cfg) ((re-find #":(.*)\!" msg) 1)))
+        (if-master (re-find #":\$die" msg))
           (dosync (alter conn assoc :exit true))
+        (if-master (re-find #"\$join.*" msg))
+          (write conn (str "JOIN" (get (re-find #"\$join(.+)" msg) 1)))
        (re-find #"^ERROR :Closing Link:" msg) 
        (dosync (alter conn merge {:exit true}))
        (re-find #"^PING" msg)
