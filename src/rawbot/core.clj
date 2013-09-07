@@ -14,7 +14,7 @@
         in (BufferedReader. (InputStreamReader. (.getInputStream socket)))
         out (PrintWriter. (.getOutputStream socket))
         conn (ref {:in in :out out})]
-    (doto (Thread. #(conn-handler conn)) (.start))
+    (doto (Thread. #(conn-handler (:name server) conn)) (.start))
     (swap! bots assoc (:name server) conn)
     conn))
 
@@ -24,23 +24,35 @@
     (.println (str msg "\r"))
     (.flush)))
 
-(defmacro if-master [t]
-  `(and ~t (= (:master @cfg) (get (re-find #":(.*)!" ~'msg) 1))))
+(defn master? [{:keys [cfg user]}]
+  (when-let [masters (:masters cfg)]
+    (let [[nick _ hmask] user]
+      (reduce #(and % (if (string? %2)
+                        (= hmask %2)
+                        (and (= nick (first %2)) (= hmask (second %2)))))
+              true masters))))
 
-(defn conn-handler [conn]
-  (while (nil? (:exit @conn))
-    (let [msg (.readLine (:in @conn))]
+(defmacro when-master [com-m t & body]
+  `(when (and (master? ~com-m) ~t)
+    ~@body))
+
+
+(defn conn-handler [name conn]
+  (if (nil? (:exit @conn))
+    (let [msg (.readLine (:in @conn))
+          com-m {:server name :bot conn :user (rest (re-find #":(.*)!(.*)@(.*) " msg))
+                 :cfg (get @cfg name)}]
       (println msg)
       (cond 
-        (if-master (re-find #":\$die" msg))
-          (dosync (alter conn assoc :exit true))
-        (if-master (re-find #"\$join.*" msg))
-          (write conn (str "JOIN" (get (re-find #"\$join(.+)" msg) 1)))
-       (re-find #"^ERROR :Closing Link:" msg) 
-       (dosync (alter conn merge {:exit true}))
-       (re-find #"^PING" msg)
-       (write conn (str "PONG "  (re-find #":.*" msg))))))
-  (swap! bots disj conn))
+        (when-master com-m (re-find #":\$die" msg)
+        (dosync (alter conn assoc :exit true)))
+        (comment (if-master (re-find #"\$join.*" msg))
+                 (write conn (str "JOIN" (get (re-find #"\$join(.+)" msg) 1))))
+        (re-find #"^ERROR :Closing Link:" msg) 
+        (dosync (alter conn merge {:exit true}))
+        (re-find #"^PING" msg)
+        (write conn (str "PONG "  (re-find #":.*" msg)))))
+  (swap! bots disj conn)))
 
 (defn login [conn user]
   (write conn (str "NICK " (:nick user)))
@@ -52,6 +64,7 @@
 
 (defn -main [& args]
   (doseq [[s c] (:servers @cfg)]
-    (doto (connect {:name s :port (:port c)})
+    (future (doto (connect {:name s :port (:port c)})
+      (Thread/sleep 15000)
       (login {:nick (:nick c) :name (:nick c)})
-      (join-channels c))))
+      (join-channels c)))))
